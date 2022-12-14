@@ -10,6 +10,7 @@ import csv
 import math
 import numpy as np
 import pandas as pd
+import mysklearn.myevaluation as myevaluation
 
 
 def compute_euclidean_distance(v1, v2):
@@ -88,6 +89,20 @@ def correct_table(filename):
     table.pop(0)
     return table
 
+def compute_random_subset(header, f):
+    """used for holdout method selection
+
+    Args:
+        header: column names
+        f: num att for tree
+
+    Returns:
+       values_copy[:f]: shuffled list
+    """
+    # there is a function np.random.choice()
+    values_copy = header[:]  # shallow copy
+    np.random.shuffle(values_copy)  # in place shuffle
+    return values_copy[:f]
 
 def get_column(table, header, col_name):
     """Extracts column from table
@@ -108,6 +123,19 @@ def get_column(table, header, col_name):
             col.append(value)
     return col
 
+def group_by(table, header, groupby_col_name):
+    groupby_col_index = header.index(groupby_col_name)
+    groupby_col = get_column(table, header, groupby_col_name)
+    group_names = sorted(list(set(groupby_col)))
+
+    group_subtables = [[] for _ in group_names]
+
+    for row in table:
+        groupby_val = row[groupby_col_index]
+        groupby_val_subtable_index = group_names.index(groupby_val)
+        group_subtables[groupby_val_subtable_index].append(row.copy())
+
+    return group_names, group_subtables
 
 def find_column(X_train, y_train, col_index, ci):
     """Extracts column from table
@@ -146,6 +174,65 @@ def find1_column(X_train, col_index):
         if value != "NA":
             col.append(value)
     return col
+
+def get_labels(list_of_val):
+    """ returns unique values as labels and their freq
+        Args:
+            list_of_val(list of str): list of values
+        Returns:
+            label(list of str): list of unique values as labels
+            freq(list of int): frequency of the unique val parallel to labels
+    """
+    label = []
+    freq = []
+    for val in list_of_val:
+        if val in label:
+            idx = label.index(val)
+            freq[idx] += 1
+        else:
+            label.append(val)
+            freq.append(1)
+    return label, freq
+
+def find_max(label, freqs):
+    """ find max finds the label associated with the highest frequency given a list of frequencies
+        Args:
+            label(list of str): list of labels
+            freqs(list of int): frequency of each label(parallel to labels)
+        Returns:
+            max_label(str): label of the highest frequency
+    """
+    max_f = 0
+    max_label = ""
+    for i, freq in enumerate(freqs):
+        if freq > max_f:
+            max_f = freq
+            max_label = label[i]
+    return max_label
+
+def get_groups_in_col(data, header, column_name):
+    group_labels = []
+    col_index = header.index(column_name)
+    for row in data:
+        if row[col_index] not in group_labels:
+            group_labels.append(row[col_index])
+    return group_labels
+
+def get_average(col1, col2):
+    list = []
+    for i in range(len(col1)):
+        data = col1[i] + col2[i]
+        data = data / 2
+        list.append(data)
+    return list
+
+def get_average_four_col(col1, col2, col3, col4):
+    list = []
+    for i in range(len(col1)):
+        data = col1[i] + col2[i] + col3[i] + col4[i]
+        data = data / 4
+        list.append(data)
+    return list
 
 
 def discretized_values(X_test):
@@ -295,6 +382,39 @@ def matrices_winner_total(knn_matrix):
 
     return knn_matrix
 
+def matrices_playoff_binary_total(knn_matrix):
+    """puts the totals in the matix
+
+    Args:
+        knn_matrix: matrix
+
+    Returns:
+       knn_matix: matrix with totals
+    """
+    yes_val = 0
+    no_val = 0
+    yes_val1 = 0
+    no_val1 = 0
+    for i, _ in enumerate(knn_matrix):
+        for j in range(len(knn_matrix)):
+            if i == 0:
+                yes_val += knn_matrix[i][j]
+            elif i == 1:
+                no_val += knn_matrix[i][j]
+            if j == 0:
+                yes_val1 += knn_matrix[i][j]
+            elif j == 1:
+                no_val1 += knn_matrix[i][j]
+
+    knn_matrix[0].append(yes_val)
+    knn_matrix[1].append(no_val)
+    knn_matrix.append([yes_val1, no_val1, yes_val1+no_val1])
+    knn_matrix[0].insert(0, "MP")
+    knn_matrix[1].insert(0, "NP")
+    knn_matrix[2].insert(0, "Total")
+
+    return knn_matrix
+
 def matrices_playoff_total(knn_matrix):
     np_val = 0
     wc_val = 0
@@ -403,6 +523,62 @@ def select_attribute(instances, attributes):
 
     min_index = select_min_entropy.index(min(select_min_entropy))
     return attributes[min_index]
+
+def compute_bootstrapped_sample(table):
+    """selects the attribute index to partition on
+
+    Args:
+        table: remainder set 
+
+    Returns:
+       X_train, y_train, X_test, y_test: split
+    """
+    n = len(table)
+    train_set = []
+    for _ in range(n):
+        # Return random integers from low (inclusive) to high (exclusive)
+        rand_index = np.random.randint(0, n)
+        train_set.append(table[rand_index])
+
+    validation_set = []
+    for i in range(n):
+        if table[i] not in train_set:
+            validation_set.append(table[i])
+
+    X_train = [row[0:-1] for row in train_set]
+    y_train = [row[-1] for row in train_set]
+    X_test = [row[0:-1] for row in validation_set]
+    y_test = [[row[-1]] for row in validation_set]
+
+    return X_train, y_train, X_test, y_test
+
+def find_majority(index, table):
+    """finds majority instance
+
+    Args:
+        index: column index
+        table: instance
+
+    Returns:
+       majority_vote: majority instance
+    """
+    unique_instances = []
+    for row in table:
+        if row[index] not in unique_instances:
+            unique_instances.append(row[index])
+
+    count_instances = [[] for _ in unique_instances]
+
+    for row in table:
+        count_instances[unique_instances.index(row[index])].append(1)
+
+    sum_instances = []
+    for row in count_instances:
+        sum_instances.append(sum(row))
+
+    majority_vote = unique_instances[sum_instances.index(max(sum_instances))]
+
+    return majority_vote
 
 
 def partition_instances(instances, split_attribute, X_train):
